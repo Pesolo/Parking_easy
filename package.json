@@ -1,0 +1,18 @@
+{
+  "name": "parkeasy-app",
+  "version": "1.0.0",
+  "description": "Smart Parking System with Firebase Real-Time Database Integration",
+  "main": "index.html",
+  "scripts": {
+    "start": "serve .",
+    "build": "echo 'Static site, no build needed'",
+    "dev": "serve ."
+  },
+  "keywords": ["parking", "firebase", "booking", "realtime", "rtb"],
+  "author": "ParkEasy Team",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "serve": "^14.0.0"
+  }
+}
