@@ -1,13 +1,19 @@
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ParkEasy - Smart Parking System</title>
-    <!-- Firebase SDK -->
+    
+    <!-- Security Headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    
+    <!-- Firebase SDK v9 (compat mode for easier migration) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    
     <style>
         * {
             margin: 0;
@@ -78,12 +84,26 @@
             box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
         }
 
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .btn-secondary {
             background: linear-gradient(45deg, #f093fb, #f5576c);
         }
 
         .btn-secondary:hover {
             box-shadow: 0 8px 25px rgba(240, 147, 251, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(45deg, #28a745, #20c997);
+        }
+
+        .btn-danger {
+            background: linear-gradient(45deg, #dc3545, #fd7e14);
         }
 
         .card {
@@ -177,6 +197,12 @@
             border: 1px solid #f5c6cb;
         }
 
+        .message.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
         .slots-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -192,6 +218,7 @@
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s ease;
             position: relative;
+            overflow: hidden;
         }
 
         .slot-card:hover {
@@ -202,20 +229,58 @@
             border: 3px solid #4CAF50;
         }
 
+        .slot-card.firebase-enabled::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
         .firebase-badge {
             position: absolute;
-            top: -10px;
-            right: -10px;
+            top: 10px;
+            right: 10px;
             background: #4CAF50;
             color: white;
             border-radius: 50%;
-            width: 30px;
-            height: 30px;
+            width: 35px;
+            height: 35px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 12px;
             font-weight: bold;
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+        }
+
+        .connection-status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .connection-status.connected {
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+        }
+
+        .connection-status.disconnected {
+            background: rgba(244, 67, 54, 0.9);
+            color: white;
         }
 
         .live-view {
@@ -230,24 +295,38 @@
             margin-bottom: 10px;
             color: #fff;
             font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .occupancy-status-display {
-            font-size: 1.5rem;
+            font-size: 1.3rem;
             font-weight: bold;
             text-align: center;
             margin-bottom: 10px;
-            padding: 10px;
+            padding: 12px;
             border-radius: 8px;
             color: #fff;
+            transition: all 0.3s ease;
         }
 
         .occupancy-status-display.occupied {
             background: linear-gradient(45deg, #ff4444, #cc0000);
+            animation: occupied-pulse 2s infinite;
         }
 
         .occupancy-status-display.available {
             background: linear-gradient(45deg, #44ff44, #00cc00);
+        }
+
+        .occupancy-status-display.loading {
+            background: linear-gradient(45deg, #ffc107, #fd7e14);
+        }
+
+        @keyframes occupied-pulse {
+            0%, 100% { box-shadow: 0 0 5px rgba(255, 68, 68, 0.5); }
+            50% { box-shadow: 0 0 20px rgba(255, 68, 68, 0.8); }
         }
 
         .status-indicator {
@@ -261,10 +340,12 @@
 
         .status-indicator.occupied {
             background: #f44336;
+            box-shadow: 0 0 8px rgba(244, 67, 54, 0.6);
         }
 
         .status-indicator.available {
             background: #4CAF50;
+            box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
         }
 
         .occupancy-info {
@@ -272,6 +353,7 @@
             justify-content: space-between;
             font-size: 12px;
             color: rgba(255, 255, 255, 0.9);
+            margin-top: 8px;
         }
 
         .slot-details-form {
@@ -280,10 +362,22 @@
             padding: 20px;
             margin-top: 20px;
             display: none;
+            animation: slideIn 0.3s ease-out;
         }
 
         .slot-details-form.show {
             display: block;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .slot-id {
@@ -356,7 +450,7 @@
 
         .booking-details {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minItems(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
             margin-bottom: 15px;
         }
@@ -385,6 +479,28 @@
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
             align-items: end;
+        }
+
+        .connection-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .connection-indicator.connected {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .connection-indicator.disconnected {
+            background: #f44336;
+            color: white;
         }
 
         @media (max-width: 768px) {
@@ -423,6 +539,11 @@
     </style>
 </head>
 <body>
+    <!-- Connection Status Indicator -->
+    <div id="connectionIndicator" class="connection-indicator disconnected">
+        🔴 Disconnected
+    </div>
+
     <div class="container">
         <header>
             <div class="logo">🅿️ ParkEasy</div>
@@ -449,6 +570,13 @@
                         <input type="password" id="loginPassword" required>
                     </div>
                     <button type="submit" class="btn" style="width: 100%;">Login</button>
+                    
+                    <!-- Demo Mode Helper -->
+                    <div style="margin-top: 15px; padding: 10px; background: rgba(102, 126, 234, 0.1); border-radius: 8px; text-align: center;">
+                        <small style="color: #667eea;">
+                            <strong>Demo Mode:</strong> Use <code>demo@parkeasy.com</code> with any password
+                        </small>
+                    </div>
                 </form>
 
                 <!-- Signup Form -->
@@ -464,7 +592,7 @@
                     </div>
                     <div class="form-group">
                         <label for="signupPassword">Password</label>
-                        <input type="password" id="signupPassword" required>
+                        <input type="password" id="signupPassword" required minlength="6">
                     </div>
                     <button type="submit" class="btn" style="width: 100%;">Sign Up</button>
                 </form>
@@ -514,7 +642,7 @@
                             <input type="text" id="totalCost" readonly>
                         </div>
                         <div style="display: flex; gap: 10px; margin-top: 20px;">
-                            <button type="submit" class="btn" style="flex: 1;">Confirm Booking</button>
+                            <button type="submit" class="btn btn-success" style="flex: 1;">Confirm Booking</button>
                             <button type="button" class="btn btn-secondary" onclick="cancelSlotSelection()" style="flex: 1;">Cancel</button>
                         </div>
                     </form>
@@ -524,53 +652,123 @@
             <!-- My Bookings -->
             <div class="card">
                 <h2 style="color: #667eea; margin-bottom: 20px;">📋 My Bookings</h2>
-                <button class="btn" onclick="loadBookings()">Refresh Bookings</button>
+                <button class="btn" onclick="loadBookings()">🔄 Refresh Bookings</button>
                 <div id="bookingsContainer"></div>
             </div>
         </div>
     </div>
 
     <script>
-        // Firebase configuration - REPLACE WITH YOUR CONFIG
+        // Firebase configuration - UPDATED WITH CORRECT WEB CONFIG
         const firebaseConfig = {
+            apiKey: "AIzaSyBElYSFDl_btKBVPgelLK16cnlLAoeLmnQ",
+            authDomain: "car-22792.firebaseapp.com",
+            databaseURL: "https://car-22792-default-rtdb.firebaseio.com",
             projectId: "car-22792",
-            databaseURL: "https://car-22792-default-rtdb.firebaseio.com/"
+            storageBucket: "car-22792.firebasestorage.app",
+            messagingSenderId: "253140040916",
+            appId: "1:253140040916:web:363ee6327c476635f4cf41",
+            measurementId: "G-0ZM82NQKV7"
         };
 
         // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
+        let firebaseApp, database;
+        let isFirebaseConnected = false;
+
+        try {
+            firebaseApp = firebase.initializeApp(firebaseConfig);
+            database = firebase.database();
+            
+            // Test connection
+            database.ref('.info/connected').on('value', (snapshot) => {
+                isFirebaseConnected = snapshot.val();
+                updateConnectionStatus();
+            });
+            
+            console.log('Firebase initialized successfully');
+        } catch (error) {
+            console.error('Firebase initialization failed:', error);
+            showMessage('Firebase connection failed. Some features may be limited.', 'warning');
+        }
 
         // Global variables
         let currentUser = null;
-        let authToken = localStorage.getItem('parkingToken');
+        let authToken = getStoredToken();
         let selectedSlotData = null;
         let firebaseListeners = [];
         const API_BASE = 'https://car-booking-62vm.onrender.com';
 
-        // Predefined slots data (3 slots, 2 with Firebase)
+        // Enhanced slots data with better Firebase integration
         const AVAILABLE_SLOTS = [
             {
                 slot_id: "A1",
                 location: "Level 1, Section A - Premium",
                 hourly_rate: 8.00,
                 firebase_enabled: true,
-                firebase_path: "slot1"
+                firebase_path: "slot1",
+                features: ["Covered", "EV Charging", "Security Camera"]
             },
             {
                 slot_id: "B2", 
                 location: "Level 2, Section B - Standard",
                 hourly_rate: 5.50,
-                firebase_enabled: false
+                firebase_enabled: false,
+                features: ["Standard", "Well-lit"]
             },
             {
                 slot_id: "C3",
                 location: "Level 3, Section C - Premium",
                 hourly_rate: 7.00,
                 firebase_enabled: true,
-                firebase_path: "slot2"
+                firebase_path: "slot2",
+                features: ["Covered", "Wide Space", "Security Camera"]
             }
         ];
+
+        // Utility functions
+        function getStoredToken() {
+            try {
+                return localStorage.getItem('parkingToken');
+            } catch (error) {
+                console.warn('localStorage not available, using memory storage');
+                return null;
+            }
+        }
+
+        function setStoredToken(token) {
+            try {
+                if (token) {
+                    localStorage.setItem('parkingToken', token);
+                } else {
+                    localStorage.removeItem('parkingToken');
+                }
+            } catch (error) {
+                console.warn('localStorage not available');
+            }
+        }
+
+        function updateConnectionStatus() {
+            const indicator = document.getElementById('connectionIndicator');
+            if (isFirebaseConnected) {
+                indicator.textContent = '🟢 Connected';
+                indicator.className = 'connection-indicator connected';
+            } else {
+                indicator.textContent = '🔴 Disconnected';
+                indicator.className = 'connection-indicator disconnected';
+            }
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
 
         // Initialize app
         document.addEventListener('DOMContentLoaded', function() {
@@ -591,55 +789,110 @@
             document.getElementById('signupForm').addEventListener('submit', handleSignup);
             document.getElementById('searchForm').addEventListener('submit', handleSearch);
             document.getElementById('bookingDetailsForm').addEventListener('submit', handleBookingConfirmation);
+
+            // Add input validation
+            document.getElementById('startTime').addEventListener('change', validateTimeInputs);
+            document.getElementById('endTime').addEventListener('change', validateTimeInputs);
         });
 
-        // Firebase functions
+        // Enhanced Firebase functions
         function setupFirebaseListener(slotId, firebasePath) {
-            const ref = database.ref(`slots/${firebasePath}`);
-            const listener = ref.on('value', (snapshot) => {
-                const data = snapshot.val();
-                updateSlotLiveView(slotId, data);
-            });
-            firebaseListeners.push({ ref, listener });
+            if (!database) {
+                console.warn('Firebase not available for slot', slotId);
+                return;
+            }
+
+            try {
+                const ref = database.ref(`slots/${firebasePath}`);
+                
+                // Set up connection status for this slot
+                const connectedRef = database.ref('.info/connected');
+                const connectedListener = connectedRef.on('value', (snapshot) => {
+                    updateSlotConnectionStatus(slotId, snapshot.val());
+                });
+
+                // Set up occupancy listener
+                const occupancyListener = ref.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    updateSlotLiveView(slotId, data);
+                }, (error) => {
+                    console.error(`Firebase error for slot ${slotId}:`, error);
+                    updateSlotLiveView(slotId, null, true);
+                });
+
+                firebaseListeners.push({ 
+                    ref, 
+                    listener: occupancyListener,
+                    connectedRef,
+                    connectedListener
+                });
+
+                console.log(`Firebase listener set up for slot ${slotId}`);
+            } catch (error) {
+                console.error(`Failed to set up Firebase listener for slot ${slotId}:`, error);
+                updateSlotLiveView(slotId, null, true);
+            }
         }
 
-        function updateSlotLiveView(slotId, occupancyValue) {
+        function updateSlotConnectionStatus(slotId, isConnected) {
+            const connectionElement = document.getElementById(`connection-${slotId}`);
+            if (connectionElement) {
+                connectionElement.textContent = isConnected ? 'Connected' : 'Disconnected';
+                connectionElement.className = `connection-status ${isConnected ? 'connected' : 'disconnected'}`;
+            }
+        }
+
+        function updateSlotLiveView(slotId, occupancyValue, hasError = false) {
             const liveViewElement = document.getElementById(`live-view-${slotId}`);
             if (!liveViewElement) return;
 
-            const statusDisplay = liveViewElement.querySelector(
-                ".occupancy-status-display"
-            );
-            const statusIndicator = liveViewElement.querySelector(
-                ".status-indicator"
-            );
-            const occupancyInfo = liveViewElement.querySelector(
-                ".occupancy-info"
-            );
+            const statusDisplay = liveViewElement.querySelector('.occupancy-status-display');
+            const statusIndicator = liveViewElement.querySelector('.status-indicator');
+            const occupancyInfo = liveViewElement.querySelector('.occupancy-info');
+
+            if (hasError) {
+                statusDisplay.textContent = "Connection Error";
+                statusDisplay.className = "occupancy-status-display loading";
+                if (statusIndicator) statusIndicator.className = "status-indicator";
+                
+                if (occupancyInfo) {
+                    occupancyInfo.innerHTML = `
+                        <span>Status: Error</span>
+                        <span>Check connection</span>
+                    `;
+                }
+                return;
+            }
+
+            if (occupancyValue === null || occupancyValue === undefined) {
+                statusDisplay.textContent = "Loading...";
+                statusDisplay.className = "occupancy-status-display loading";
+                return;
+            }
 
             // occupancyValue is 1 (occupied) or 0 (available)
             const isOccupied = occupancyValue === 1;
 
-            if (isOccupied) {
-                statusDisplay.textContent = "Occupied";
-                statusDisplay.className = "occupancy-status-display occupied";
-                statusIndicator.className = "status-indicator occupied";
-            } else {
-                statusDisplay.textContent = "Available";
-                statusDisplay.className = "occupancy-status-display available";
-                statusIndicator.className = "status-indicator available";
+            statusDisplay.textContent = isOccupied ? "🚗 Occupied" : "✅ Available";
+            statusDisplay.className = `occupancy-status-display ${isOccupied ? 'occupied' : 'available'}`;
+            
+            if (statusIndicator) {
+                statusIndicator.className = `status-indicator ${isOccupied ? 'occupied' : 'available'}`;
             }
 
             const lastUpdated = new Date().toLocaleTimeString();
-            occupancyInfo.innerHTML = `
-                <span>Status: ${isOccupied ? "Occupied" : "Available"}</span>
-                <span>Updated: ${lastUpdated}</span>
-            `;
-        }   
+            if (occupancyInfo) {
+                occupancyInfo.innerHTML = `
+                    <span>Status: ${isOccupied ? "Occupied" : "Available"}</span>
+                    <span>Updated: ${lastUpdated}</span>
+                `;
+            }
+        }
 
         function cleanupFirebaseListeners() {
-            firebaseListeners.forEach(({ ref, listener }) => {
-                ref.off('value', listener);
+            firebaseListeners.forEach(({ ref, listener, connectedRef, connectedListener }) => {
+                if (ref && listener) ref.off('value', listener);
+                if (connectedRef && connectedListener) connectedRef.off('value', connectedListener);
             });
             firebaseListeners = [];
         }
@@ -658,6 +911,35 @@
             return new Date(dateString).toLocaleString();
         }
 
+        function validateTimeInputs() {
+            const startTime = document.getElementById('startTime').value;
+            const endTime = document.getElementById('endTime').value;
+            
+            if (startTime && endTime) {
+                const start = new Date(startTime);
+                const end = new Date(endTime);
+                const now = new Date();
+                
+                if (start < now) {
+                    showMessage('Start time cannot be in the past', 'error');
+                    return false;
+                }
+                
+                if (end <= start) {
+                    showMessage('End time must be after start time', 'error');
+                    return false;
+                }
+                
+                const maxHours = 24;
+                const durationHours = (end - start) / (1000 * 60 * 60);
+                if (durationHours > maxHours) {
+                    showMessage(`Maximum booking duration is ${maxHours} hours`, 'error');
+                    return false;
+                }
+            }
+            return true;
+        }
+
         function showMessage(message, type = 'success') {
             const container = document.getElementById('messageContainer');
             container.innerHTML = `<div class="message ${type}">${message}</div>`;
@@ -667,10 +949,10 @@
         }
 
         function showLoading(containerId) {
-            document.getElementById(containerId).innerHTML = '<div class="loading">Loading...</div>';
+            document.getElementById(containerId).innerHTML = '<div class="loading">🔄 Loading...</div>';
         }
 
-        // API functions
+        // Enhanced API functions with retry logic
         async function apiCall(endpoint, options = {}) {
             const url = `${API_BASE}${endpoint}`;
             const config = {
@@ -685,79 +967,116 @@
                 config.headers.Authorization = `Bearer ${authToken}`;
             }
 
-            try {
-                const response = await fetch(url, config);
-                const data = await response.json();
+            const maxRetries = 3;
+            let lastError;
 
-                if (!response.ok) {
-                    throw new Error(data.error || `HTTP error! status: ${response.status}`);
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    const response = await fetch(url, config);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    return data;
+                } catch (error) {
+                    lastError = error;
+                    console.warn(`API call attempt ${attempt} failed:`, error.message);
+                    
+                    if (attempt < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                    }
                 }
-
-                return data;
-            } catch (error) {
-                console.error('API call failed:', error);
-                throw error;
             }
+
+            throw lastError;
         }
 
         // Authentication functions
         async function handleLogin(e) {
             e.preventDefault();
             
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-
-            // Demo mode - bypass API for testing
-            if (email === 'demo@parkeasy.com' || email === 'test@example.com') {
-                authToken = 'demo-token-12345';
-                localStorage.setItem('parkingToken', authToken);
-                currentUser = { id: 'demo-user', name: email.split('@')[0] };
-                
-                showDashboard();
-                showMessage('Demo login successful! You can now test the parking system.');
-                return;
-            }
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Logging in...';
 
             try {
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+
+                // Demo mode - bypass API for testing
+                if (email === 'demo@parkeasy.com' || email === 'test@example.com') {
+                    authToken = 'demo-token-12345';
+                    setStoredToken(authToken);
+                    currentUser = { 
+                        id: 'demo-user', 
+                        name: email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1),
+                        email: email
+                    };
+                    
+                    showDashboard();
+                    showMessage('🎉 Demo login successful! You can now test the parking system.');
+                    return;
+                }
+
                 const response = await apiCall('/auth/login', {
                     method: 'POST',
                     body: JSON.stringify({ email, password })
                 });
 
                 authToken = response.token;
-                localStorage.setItem('parkingToken', authToken);
+                setStoredToken(authToken);
                 currentUser = response.user;
                 
                 showDashboard();
-                showMessage('Login successful!');
+                showMessage('✅ Login successful!');
                 loadBookings();
             } catch (error) {
-                showMessage(`Login failed: ${error.message}. Try demo@parkeasy.com for demo mode.`, 'error');
+                showMessage(`❌ Login failed: ${error.message}. Try demo@parkeasy.com for demo mode.`, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             }
         }
 
         async function handleSignup(e) {
             e.preventDefault();
             
-            const name = document.getElementById('signupName').value;
-            const email = document.getElementById('signupEmail').value;
-            const password = document.getElementById('signupPassword').value;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating account...';
 
             try {
+                const name = document.getElementById('signupName').value;
+                const email = document.getElementById('signupEmail').value;
+                const password = document.getElementById('signupPassword').value;
+
+                // Basic validation
+                if (password.length < 6) {
+                    throw new Error('Password must be at least 6 characters long');
+                }
+
                 const response = await apiCall('/auth/signup', {
                     method: 'POST',
                     body: JSON.stringify({ name, email, password })
                 });
 
                 authToken = response.token;
-                localStorage.setItem('parkingToken', authToken);
+                setStoredToken(authToken);
                 currentUser = response.user;
                 
                 showDashboard();
-                showMessage('Account created successfully!');
+                showMessage('🎉 Account created successfully!');
                 loadBookings();
             } catch (error) {
-                showMessage(error.message, 'error');
+                showMessage(`❌ Signup failed: ${error.message}`, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             }
         }
 
@@ -768,15 +1087,18 @@
                 showDashboard();
                 loadBookings();
             } catch (error) {
+                console.warn('Auth check failed:', error.message);
                 logout();
             }
         }
 
         function logout() {
+            cleanupFirebaseListeners();
             authToken = null;
             currentUser = null;
-            localStorage.removeItem('parkingToken');
+            setStoredToken(null);
             showAuthSection();
+            showMessage('👋 Logged out successfully!');
         }
 
         function toggleAuthForm() {
@@ -813,31 +1135,32 @@
             document.getElementById('userName').textContent = `Welcome, ${currentUser.name}!`;
         }
 
-        // Parking slot functions
+        // Enhanced parking slot functions
         async function handleSearch(e) {
             e.preventDefault();
+            
+            if (!validateTimeInputs()) {
+                return;
+            }
             
             const startTime = document.getElementById('startTime').value;
             const endTime = document.getElementById('endTime').value;
 
-            if (!startTime || !endTime) {
-                showMessage('Please select both start and end times', 'error');
-                return;
-            }
-
-            if (new Date(startTime) >= new Date(endTime)) {
-                showMessage('End time must be after start time', 'error');
-                return;
-            }
-
             showLoading('slotsContainer');
 
-            // Use predefined slots instead of API call
-            setTimeout(() => {
+            try {
+                // Simulate API call delay for better UX
+                await new Promise(resolve => setTimeout(resolve, 800));
+                
                 const startISO = new Date(startTime).toISOString();
                 const endISO = new Date(endTime).toISOString();
                 displaySlots(AVAILABLE_SLOTS, startISO, endISO);
-            }, 1000);
+                
+                showMessage(`🔍 Found ${AVAILABLE_SLOTS.length} available slots!`);
+            } catch (error) {
+                document.getElementById('slotsContainer').innerHTML = 
+                    `<div class="message error">❌ Search failed: ${error.message}</div>`;
+            }
         }
 
         function displaySlots(slots, startTime, endTime) {
@@ -847,30 +1170,55 @@
             cleanupFirebaseListeners();
 
             const slotsHTML = slots.map(slot => {
-                const firebaseBadge = slot.firebase_enabled ? '<div class="firebase-badge">🔴</div>' : '';
+                const firebaseBadge = slot.firebase_enabled ? 
+                    '<div class="firebase-badge">🔴</div>' : '';
                 const firebaseClass = slot.firebase_enabled ? 'firebase-enabled' : '';
+                const connectionStatus = slot.firebase_enabled ? 
+                    `<div id="connection-${slot.slot_id}" class="connection-status disconnected">Connecting...</div>` : '';
+                
+                const featuresHTML = slot.features ? 
+                    `<div style="margin: 10px 0; font-size: 12px; opacity: 0.9;">
+                        ${slot.features.map(f => `<span style="background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 10px; margin-right: 5px;">${f}</span>`).join('')}
+                    </div>` : '';
+
                 const liveView = slot.firebase_enabled ? `
                     <div class="live-view" id="live-view-${slot.slot_id}">
-                        <h4>Real-time Occupancy Status</h4>
-                        <div class="occupancy-status-display">
-                            Loading status...
+                        <h4>
+                            🔴 Real-time Status
+                            <span class="status-indicator"></span>
+                        </h4>
+                        <div class="occupancy-status-display loading">
+                            Connecting...
                         </div>
                         <div class="occupancy-info">
-                            <span>Status: Checking...</span>
+                            <span>Status: Connecting...</span>
                             <span>Updated: --</span>
                         </div>
                     </div>
-                ` : "";
+                ` : `
+                    <div class="live-view">
+                        <h4>📊 Standard Monitoring</h4>
+                        <div class="occupancy-status-display available">
+                            Available
+                        </div>
+                        <div class="occupancy-info">
+                            <span>Status: Available</span>
+                            <span>Type: Standard</span>
+                        </div>
+                    </div>
+                `;
 
                 return `
                     <div class="slot-card ${firebaseClass}">
                         ${firebaseBadge}
+                        ${connectionStatus}
                         <div class="slot-id">Slot ${slot.slot_id}</div>
-                        <div class="slot-location">${slot.location}</div>
-                        <div class="slot-rate">$${slot.hourly_rate}/hour</div>
+                        <div class="slot-location">📍 ${slot.location}</div>
+                        <div class="slot-rate">💰 ${slot.hourly_rate}/hour</div>
+                        ${featuresHTML}
                         ${liveView}
-                        <button class="btn" onclick="selectSlot('${slot.slot_id}', '${startTime}', '${endTime}')" style="margin-top: 15px;">
-                            Select This Slot
+                        <button class="btn" onclick="selectSlot('${slot.slot_id}', '${startTime}', '${endTime}')" style="margin-top: 15px; width: 100%;">
+                            🎯 Select This Slot
                         </button>
                     </div>
                 `;
@@ -905,7 +1253,7 @@
             // Fill the form
             document.getElementById('selectedSlot').value = `${slot.slot_id} - ${slot.location}`;
             document.getElementById('bookingDuration').value = `${durationHours.toFixed(1)} hours`;
-            document.getElementById('totalCost').value = `$${totalCost}`;
+            document.getElementById('totalCost').value = `${totalCost}`;
 
             // Show the form
             document.getElementById('slotDetailsForm').classList.add('show');
@@ -916,22 +1264,28 @@
                 block: 'start' 
             });
 
-            showMessage(`Slot ${slotId} selected! Please confirm below.`);
+            showMessage(`🎯 Slot ${slotId} selected! Please confirm your booking below.`);
         }
 
         function cancelSlotSelection() {
             selectedSlotData = null;
             document.getElementById('slotDetailsForm').classList.remove('show');
             document.getElementById('bookingDetailsForm').reset();
+            showMessage('❌ Slot selection cancelled.');
         }
 
         async function handleBookingConfirmation(e) {
             e.preventDefault();
             
             if (!selectedSlotData) {
-                showMessage('No slot selected', 'error');
+                showMessage('❌ No slot selected', 'error');
                 return;
             }
+
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Creating booking...';
 
             try {
                 // Create booking with only documented fields
@@ -946,59 +1300,104 @@
                     body: JSON.stringify(bookingData)
                 });
 
-                showMessage(`Booking created successfully! Reference: ${response.booking_reference}`);
+                showMessage(`🎉 Booking created successfully! Reference: ${response.booking_reference}`);
                 cancelSlotSelection();
                 loadBookings();
             } catch (error) {
-                showMessage(`Booking failed: ${error.message}`, 'error');
+                showMessage(`❌ Booking failed: ${error.message}`, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             }
         }
 
-        // Booking management functions
+        // Enhanced booking management functions
         async function loadBookings() {
             showLoading('bookingsContainer');
 
             try {
                 const response = await apiCall('/booking/user/bookings');
-                displayBookings(response.bookings);
+                displayBookings(response.bookings || []);
             } catch (error) {
-                document.getElementById('bookingsContainer').innerHTML = `<div class="message error">Error loading bookings: ${error.message}</div>`;
+                // Fallback for demo mode
+                if (authToken === 'demo-token-12345') {
+                    displayDemoBookings();
+                } else {
+                    document.getElementById('bookingsContainer').innerHTML = 
+                        `<div class="message error">❌ Error loading bookings: ${error.message}</div>`;
+                }
             }
+        }
+
+        function displayDemoBookings() {
+            const demoBookings = [
+                {
+                    id: 'demo-1',
+                    booking_reference: 'PARK-DEMO-001',
+                    slot_id: 'A1',
+                    slot_location: 'Level 1, Section A - Premium',
+                    start_time: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+                    end_time: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+                    total_amount: '16.00',
+                    status: 'confirmed',
+                    payment_required: false
+                }
+            ];
+            displayBookings(demoBookings);
         }
 
         function displayBookings(bookings) {
             const container = document.getElementById('bookingsContainer');
             
             if (bookings.length === 0) {
-                container.innerHTML = '<div class="message">No bookings found. Book a parking slot to get started!</div>';
+                container.innerHTML = `
+                    <div class="message" style="text-align: center; padding: 40px;">
+                        <div style="font-size: 3rem; margin-bottom: 15px;">🅿️</div>
+                        <div style="font-size: 1.2rem; margin-bottom: 10px;">No bookings found</div>
+                        <div style="color: #666;">Book a parking slot to get started!</div>
+                    </div>
+                `;
                 return;
             }
 
-            const bookingsHTML = bookings.map(booking => `
-                <div class="booking-card">
-                    <div class="booking-header">
-                        <div class="booking-reference">${booking.booking_reference}</div>
-                        <div class="booking-status status-${booking.status.replace('_', '-')}">${booking.status}</div>
+            const bookingsHTML = bookings.map(booking => {
+                const statusIcon = {
+                    'confirmed': '✅',
+                    'pending': '⏳',
+                    'completed': '🏁',
+                    'cancelled': '❌'
+                }[booking.status] || '📋';
+
+                return `
+                    <div class="booking-card">
+                        <div class="booking-header">
+                            <div class="booking-reference">${statusIcon} ${booking.booking_reference}</div>
+                            <div class="booking-status status-${booking.status.replace('_', '-')}">${booking.status}</div>
+                        </div>
+                        <div class="booking-details">
+                            <div><strong>🅿️ Slot:</strong> ${booking.slot_id} - ${booking.slot_location}</div>
+                            <div><strong>🕐 Start:</strong> ${formatDateTime(booking.start_time)}</div>
+                            <div><strong>🕑 End:</strong> ${formatDateTime(booking.end_time)}</div>
+                            <div><strong>💰 Amount:</strong> ${booking.total_amount}</div>
+                        </div>
+                        <div class="booking-actions">
+                            ${booking.status === 'pending' && booking.payment_required ? 
+                                `<button class="btn btn-secondary" onclick="initiatePayment('${booking.id}')">💳 Pay Now</button>` : 
+                                ''
+                            }
+                            ${booking.status === 'confirmed' || booking.status === 'completed' ? 
+                                `<button class="btn" onclick="loadQRCode('${booking.id}')">📱 Show QR Code</button>` : 
+                                ''
+                            }
+                            ${booking.status === 'confirmed' ? 
+                                `<button class="btn btn-danger" onclick="cancelBooking('${booking.id}')">❌ Cancel</button>` : 
+                                ''
+                            }
+                        </div>
+                        <div id="qr-${booking.id}"></div>
                     </div>
-                    <div class="booking-details">
-                        <div><strong>Slot:</strong> ${booking.slot_id} - ${booking.slot_location}</div>
-                        <div><strong>Start:</strong> ${formatDateTime(booking.start_time)}</div>
-                        <div><strong>End:</strong> ${formatDateTime(booking.end_time)}</div>
-                        <div><strong>Amount:</strong> $${booking.total_amount}</div>
-                    </div>
-                    <div class="booking-actions">
-                        ${booking.status === 'pending' && booking.payment_required ? 
-                            `<button class="btn btn-secondary" onclick="initiatePayment('${booking.id}')">Pay Now</button>` : 
-                            ''
-                        }
-                        ${booking.status === 'confirmed' || booking.status === 'completed' ? 
-                            `<button class="btn" onclick="loadQRCode('${booking.id}')">Show QR Code</button>` : 
-                            ''
-                        }
-                    </div>
-                    <div id="qr-${booking.id}"></div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
 
             container.innerHTML = bookingsHTML;
         }
@@ -1015,36 +1414,83 @@
                 });
 
                 // Open payment gateway in new window
-                window.open(response.authorization_url, '_blank');
-                showMessage('Payment window opened. Complete payment and refresh bookings.');
+                const paymentWindow = window.open(response.authorization_url, '_blank');
+                showMessage('💳 Payment window opened. Complete payment and refresh bookings.');
+                
+                // Optional: Check if payment window was blocked
+                if (!paymentWindow || paymentWindow.closed || typeof paymentWindow.closed == 'undefined') {
+                    showMessage('⚠️ Payment window was blocked. Please allow popups and try again.', 'warning');
+                }
             } catch (error) {
-                showMessage(`Payment initiation failed: ${error.message}`, 'error');
+                showMessage(`❌ Payment initiation failed: ${error.message}`, 'error');
             }
         }
 
-        // QR Code functions
+        // Enhanced QR Code functions
         async function loadQRCode(bookingId) {
             const qrContainer = document.getElementById(`qr-${bookingId}`);
-            qrContainer.innerHTML = '<div class="loading">Loading QR code...</div>';
+            qrContainer.innerHTML = '<div class="loading">📱 Loading QR code...</div>';
 
             try {
                 const response = await apiCall(`/booking/bookings/${bookingId}/qr`);
                 qrContainer.innerHTML = `
-                    <div style="margin-top: 15px;">
-                        <img src="${response.qr_image}" alt="QR Code" class="qr-code">
+                    <div style="margin-top: 15px; text-align: center;">
+                        <img src="${response.qr_image}" alt="QR Code for booking ${bookingId}" class="qr-code">
                         <div style="margin-top: 10px;">
                             <a href="${API_BASE}/booking/bookings/${bookingId}/qr/download" 
                                target="_blank" class="btn" style="font-size: 12px; padding: 8px 16px;">
-                                Download QR Code
+                                📥 Download QR Code
                             </a>
+                        </div>
+                        <div style="margin-top: 8px; font-size: 11px; opacity: 0.8;">
+                            Show this QR code at the parking entrance
                         </div>
                     </div>
                 `;
             } catch (error) {
-                qrContainer.innerHTML = `<div class="message error">Error loading QR code: ${error.message}</div>`;
+                qrContainer.innerHTML = `<div class="message error">❌ Error loading QR code: ${error.message}</div>`;
             }
         }
+
+        // Booking cancellation
+        async function cancelBooking(bookingId) {
+            if (!confirm('Are you sure you want to cancel this booking?')) {
+                return;
+            }
+
+            try {
+                await apiCall(`/booking/bookings/${bookingId}/cancel`, {
+                    method: 'POST'
+                });
+                
+                showMessage('✅ Booking cancelled successfully!');
+                loadBookings();
+            } catch (error) {
+                showMessage(`❌ Cancellation failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Enhanced error handling
+        window.addEventListener('error', function(e) {
+            console.error('Global error:', e.error);
+            if (e.error?.message?.includes('Firebase')) {
+                showMessage('⚠️ Firebase connection issue. Real-time features may be limited.', 'warning');
+            }
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            cleanupFirebaseListeners();
+        });
+
+        // Auto-refresh bookings every 5 minutes
+        setInterval(() => {
+            if (currentUser && document.getElementById('dashboard').classList.contains('show')) {
+                loadBookings();
+            }
+        }, 5 * 60 * 1000);
+
+        console.log('🅿️ ParkEasy initialized successfully!');
     </script>
 </body>
 </html>
-```
